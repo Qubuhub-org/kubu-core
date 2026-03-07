@@ -1,0 +1,6 @@
+usr/local/bin/kubu-qt usr/bin
+share/pixmaps/kubu32.xpm usr/share/pixmaps
+share/pixmaps/kubu16.xpm usr/share/pixmaps
+share/pixmaps/kubu128.png usr/share/pixmaps
+debian/kubu-qt.desktop usr/share/applications
+debian/kubu-qt.protocol usr/share/kde4/services/

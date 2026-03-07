@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Kubu Core
+Comment=Connect to the Kubu P2P Network
+Comment[de]=Verbinde mit dem Kubu peer-to-peer Netzwerk
+Comment[fr]=Kubu, monnaie virtuelle cryptographique pair à pair
+Comment[tr]=Kubu, eşten eşe kriptografik sanal para birimi
+Exec=kubu-qt %u
+Terminal=false
+Type=Application
+Icon=kubu128
+MimeType=x-scheme-handler/kubu;
+Categories=Office;Finance;
