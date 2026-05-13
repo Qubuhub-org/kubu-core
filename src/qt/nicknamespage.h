@@ -84,11 +84,13 @@ private:
     bool currentLookupWalletOwned;
     bool currentLookupMutable;
     bool currentLookupClaimable;
+    bool currentLookupLegacyBond;
 
     void clearLookupResult();
     void refreshWalletNicknames();
     QTableWidget* currentNicknamesTable() const;
     bool ensureLookupForNickname(const QString& nickname);
+    void applyWalletNicknameRowContext(QTableWidget* table, int row);
     void openActionMenuForNickname(const QString& nickname, const QPoint& globalPos);
     void showNicknameDetailsDialog(const QString& nickname);
     bool confirmAction(const QString& title, const QString& text) const;

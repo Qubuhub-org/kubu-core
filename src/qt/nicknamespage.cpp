@@ -17,6 +17,7 @@
 #include "sync.h"
 #include "utilstrencodings.h"
 #include "validation.h"
+#include "wallet/wallet.h"
 
 #include <univalue.h>
 
@@ -46,6 +47,7 @@
 #include <QTableWidgetItem>
 #include <QTextEdit>
 #include <QTimer>
+#include <QVariant>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -53,6 +55,10 @@
 #include <set>
 
 namespace {
+static const int ROLE_BOND_REF = Qt::UserRole;
+static const int ROLE_LEGACY_BOND = Qt::UserRole + 1;
+static const int ROLE_BOND_AMOUNT = Qt::UserRole + 2;
+
 bool WalletOwnsNickname(WalletModel* model, const NicknameInfo& info)
 {
     if (!model || info.ownerPubKey.size() != CPubKey::COMPRESSED_SIZE) {
@@ -223,6 +229,27 @@ QString BondInfoForStatus(const NicknameInfo& info, const Nicknames::Status stat
     }
     return QObject::tr("locked %1").arg(FormatKubuAmountFromNative(info.bondAmount));
 }
+
+QString BondRefForInfo(const NicknameInfo& info)
+{
+    if (!info.HasBondOutpoint()) {
+        return QString();
+    }
+    return QString::fromStdString(info.bondTxid.GetHex()) + ":" + QString::number(info.bondVout);
+}
+
+void SetNicknameRowMetadata(QTableWidgetItem* item, const QString& bondRef, const bool legacyBond, const CAmount bondAmount)
+{
+    if (!item) {
+        return;
+    }
+    item->setData(ROLE_BOND_REF, bondRef);
+    item->setData(ROLE_LEGACY_BOND, legacyBond);
+    item->setData(ROLE_BOND_AMOUNT, static_cast<qlonglong>(bondAmount));
+    if (!bondRef.isEmpty()) {
+        item->setToolTip(QObject::tr("Bond UTXO: %1").arg(bondRef));
+    }
+}
 } // namespace
 
 NicknamesPage::NicknamesPage(QWidget* parent)
@@ -253,7 +280,8 @@ NicknamesPage::NicknamesPage(QWidget* parent)
       canRegisterLookup(false),
       currentLookupWalletOwned(false),
       currentLookupMutable(false),
-      currentLookupClaimable(false)
+      currentLookupClaimable(false),
+      currentLookupLegacyBond(false)
 {
     setStyleSheet(
         "QFrame#topBar, QFrame#tableCard {"
@@ -470,6 +498,7 @@ void NicknamesPage::clearLookupResult()
     currentLookupWalletOwned = false;
     currentLookupMutable = false;
     currentLookupClaimable = false;
+    currentLookupLegacyBond = false;
 
     actionsButton->setEnabled(false);
 }
@@ -575,6 +604,7 @@ void NicknamesPage::onLookupClicked()
     currentLookupClaimable = walletOwned &&
                              status == Nicknames::Status::BOND_CLAIMABLE &&
                              info.HasBondOutpoint();
+    currentLookupLegacyBond = false;
 
     if (canRegisterLookup) {
         availabilityValue->setText(tr("Available for registration"));
@@ -605,6 +635,13 @@ void NicknamesPage::onActionsClicked()
 
     if (!ensureLookupForNickname(nickname)) {
         return;
+    }
+    QTableWidget* table = currentNicknamesTable();
+    if (table && table->currentRow() >= 0) {
+        QTableWidgetItem* item = table->item(table->currentRow(), 0);
+        if (item && item->text().trimmed() == currentLookupNickname) {
+            applyWalletNicknameRowContext(table, table->currentRow());
+        }
     }
 
     openActionMenuForNickname(currentLookupNickname, QCursor::pos());
@@ -669,14 +706,26 @@ void NicknamesPage::refreshWalletNicknames()
         }
     };
 
-    auto appendRow = [&](QTableWidget* table, const NicknameInfo& info, const Nicknames::Status status) {
+    auto appendRow = [&](QTableWidget* table,
+                         const NicknameInfo& info,
+                         const Nicknames::Status status,
+                         const QString& bondRef = QString(),
+                         const bool legacyBond = false,
+                         const CAmount bondAmountOverride = -1) {
         const int row = table->rowCount();
         table->insertRow(row);
         const bool compactHistoryLabel = (table == historyNicknamesTable);
-        table->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(info.nickname)));
+        QTableWidgetItem* nicknameItem = new QTableWidgetItem(QString::fromStdString(info.nickname));
+        const CAmount displayBondAmount = bondAmountOverride >= 0 ? bondAmountOverride : info.bondAmount;
+        const QString rowBondRef = bondRef.isEmpty() ? BondRefForInfo(info) : bondRef;
+        SetNicknameRowMetadata(nicknameItem, rowBondRef, legacyBond, displayBondAmount);
+        table->setItem(row, 0, nicknameItem);
         table->setItem(row, 1, new QTableWidgetItem(StatusLabelForUi(status, compactHistoryLabel)));
         table->setItem(row, 2, new QTableWidgetItem(TimeInfoForStatus(info, status, currentHeight)));
-        table->setItem(row, 3, new QTableWidgetItem(BondInfoForStatus(info, status)));
+        const QString bondText = legacyBond
+            ? tr("claimable %1 (legacy)").arg(FormatKubuAmountFromNative(displayBondAmount))
+            : BondInfoForStatus(info, status);
+        table->setItem(row, 3, new QTableWidgetItem(bondText));
         table->setItem(row, 4, new QTableWidgetItem(QString::fromStdString(info.payoutAddress)));
     };
 
@@ -687,8 +736,12 @@ void NicknamesPage::refreshWalletNicknames()
 
     const std::vector<NicknameInfo> entries =
         nicknameDB->ListNicknamesForOwnerKeyIDs(walletKeyIDs, "", std::numeric_limits<size_t>::max());
+    std::set<COutPoint> currentBondOutpoints;
     for (const NicknameInfo& info : entries) {
         const Nicknames::Status status = info.GetStatus(currentHeight);
+        if (info.HasBondOutpoint()) {
+            currentBondOutpoints.insert(info.GetBondOutpoint());
+        }
 
         if (status == Nicknames::Status::ACTIVE) {
             ++activeCount;
@@ -716,6 +769,48 @@ void NicknamesPage::refreshWalletNicknames()
             ++historyCount;
             appendRow(historyNicknamesTable, info, status);
         }
+    }
+
+    std::vector<COutPoint> trackedBondOutpoints;
+    if (model) {
+        model->getTrackedNicknameBondOutpoints(trackedBondOutpoints);
+    }
+    for (const COutPoint& outpoint : trackedBondOutpoints) {
+        if (currentBondOutpoints.count(outpoint) > 0) {
+            continue;
+        }
+
+        std::string nickname;
+        if (!nicknameDB->ReadNicknameByBondOutpoint(outpoint, nickname)) {
+            continue;
+        }
+
+        NicknameInfo currentInfo;
+        if (!nicknameDB->ReadNickname(nickname, currentInfo)) {
+            continue;
+        }
+
+        if (currentInfo.HasBondOutpoint() && currentInfo.GetBondOutpoint() == outpoint) {
+            continue;
+        }
+
+        const QString bondRef = QString::fromStdString(outpoint.hash.GetHex()) + ":" + QString::number(outpoint.n);
+        CAmount bondAmount = 0;
+        if (model) {
+            std::vector<COutPoint> oneOutpoint(1, outpoint);
+            std::vector<COutput> outputs;
+            model->getOutputs(oneOutpoint, outputs);
+            if (!outputs.empty()) {
+                bondAmount = outputs.front().tx->tx->vout[outputs.front().i].nValue;
+            }
+        }
+        if (bondAmount <= 0) {
+            continue;
+        }
+
+        ++claimableCount;
+        addSample(claimableSample, nickname);
+        appendRow(claimableNicknamesTable, currentInfo, Nicknames::Status::BOND_CLAIMABLE, bondRef, true, bondAmount);
     }
 
     auto sampleText = [](const QStringList& sample, int total) -> QString {
@@ -807,7 +902,9 @@ void NicknamesPage::onWalletNicknameActivated(int row, int column)
     }
 
     nicknameEdit->setText(nicknameItem->text());
-    ensureLookupForNickname(nicknameItem->text());
+    if (ensureLookupForNickname(nicknameItem->text())) {
+        applyWalletNicknameRowContext(table, row);
+    }
 }
 
 void NicknamesPage::onWalletNicknameDoubleClicked(int row, int column)
@@ -831,6 +928,7 @@ void NicknamesPage::onWalletNicknameDoubleClicked(int row, int column)
     if (!ensureLookupForNickname(nicknameItem->text())) {
         return;
     }
+    applyWalletNicknameRowContext(table, row);
 
     showNicknameDetailsDialog(currentLookupNickname);
 }
@@ -988,8 +1086,42 @@ void NicknamesPage::onWalletNicknamesContextMenu(const QPoint& point)
     if (nickname.isEmpty() || !ensureLookupForNickname(nickname)) {
         return;
     }
+    applyWalletNicknameRowContext(table, row);
 
     openActionMenuForNickname(nickname, table->viewport()->mapToGlobal(point));
+}
+
+void NicknamesPage::applyWalletNicknameRowContext(QTableWidget* table, int row)
+{
+    if (!table) {
+        return;
+    }
+
+    QTableWidgetItem* nicknameItem = table->item(row, 0);
+    if (!nicknameItem) {
+        return;
+    }
+
+    const bool legacyBond = nicknameItem->data(ROLE_LEGACY_BOND).toBool();
+    const QString bondRef = nicknameItem->data(ROLE_BOND_REF).toString().trimmed();
+    if (!legacyBond || bondRef.isEmpty()) {
+        return;
+    }
+
+    const CAmount bondAmount = static_cast<CAmount>(nicknameItem->data(ROLE_BOND_AMOUNT).toLongLong());
+    currentLookupNickname = nicknameItem->text().trimmed();
+    currentLookupBondRef = bondRef;
+    currentLookupLegacyBond = true;
+    currentLookupClaimable = true;
+    currentLookupMutable = false;
+    currentLookupWalletOwned = false;
+    canSendLookup = false;
+    canRegisterLookup = false;
+    currentLookupBondAmount = bondAmount;
+    currentBondAmount = FormatKubuAmountFromNative(bondAmount);
+    statusValue->setText(tr("BOND_CLAIMABLE"));
+    availabilityValue->setText(tr("Legacy claimable bond tracked by this wallet"));
+    pricingValue->setText(tr("This row represents an older bond UTXO. Use Claim bond to spend the exact outpoint below."));
 }
 
 bool NicknamesPage::ensureLookupForNickname(const QString& nickname)
@@ -2634,6 +2766,13 @@ void NicknamesPage::onClaimClicked()
     const QString normalizedQt = QString::fromStdString(normalized);
     if (!ensureLookupForNickname(normalizedQt)) {
         return;
+    }
+    QTableWidget* table = currentNicknamesTable();
+    if (table && table->currentRow() >= 0) {
+        QTableWidgetItem* item = table->item(table->currentRow(), 0);
+        if (item && item->text().trimmed() == currentLookupNickname) {
+            applyWalletNicknameRowContext(table, table->currentRow());
+        }
     }
 
     if (!currentLookupClaimable) {

@@ -67,9 +67,23 @@ CAmount ScaleByMultiplierPermille(const CAmount baseAmount, const int64_t multip
 
 bool NormalizeNickname(const std::string& input, std::string& normalized)
 {
-    normalized = input;
-    std::transform(normalized.begin(), normalized.end(), normalized.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    size_t begin = 0;
+    size_t end = input.size();
+    while (begin < end && std::isspace(static_cast<unsigned char>(input[begin]))) {
+        ++begin;
+    }
+    while (end > begin && std::isspace(static_cast<unsigned char>(input[end - 1]))) {
+        --end;
+    }
+    if (begin < end && input[begin] == '@') {
+        ++begin;
+    }
+
+    normalized.clear();
+    normalized.reserve(end - begin);
+    for (size_t i = begin; i < end; ++i) {
+        normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(input[i]))));
+    }
     return true;
 }
 

@@ -14,6 +14,7 @@
 #endif
 
 #include <univalue.h>
+#include <algorithm>
 #include <set>
 
 namespace {
@@ -122,6 +123,70 @@ std::set<COutPoint> CollectSpendableTrackedBondOutpoints()
     }
 
     return result;
+}
+
+void CollectWalletTrackedBondOutpoints(std::vector<COutPoint>& outpointsOut)
+{
+    outpointsOut.clear();
+
+    NicknameStateDB* nicknameDB = GetNicknameStateDB();
+    if (!nicknameDB) {
+        return;
+    }
+
+    std::set<COutPoint> dedup;
+
+    std::vector<COutput> availableCoins;
+    pwalletMain->AvailableCoins(availableCoins, true);
+    for (const COutput& output : availableCoins) {
+        if (!output.fSpendable) {
+            continue;
+        }
+
+        const COutPoint outpoint(output.tx->GetHash(), output.i);
+        std::string nickname;
+        if (!nicknameDB->ReadNicknameByBondOutpoint(outpoint, nickname)) {
+            continue;
+        }
+        dedup.insert(outpoint);
+    }
+
+    std::vector<COutPoint> lockedOutpoints;
+    pwalletMain->ListLockedCoins(lockedOutpoints);
+    for (const COutPoint& outpoint : lockedOutpoints) {
+        if (!pwalletMain->mapWallet.count(outpoint.hash)) {
+            continue;
+        }
+        if (outpoint.n >= pwalletMain->mapWallet[outpoint.hash].tx->vout.size()) {
+            continue;
+        }
+        if (pwalletMain->IsSpent(outpoint.hash, outpoint.n)) {
+            continue;
+        }
+
+        std::string nickname;
+        if (!nicknameDB->ReadNicknameByBondOutpoint(outpoint, nickname)) {
+            continue;
+        }
+        dedup.insert(outpoint);
+    }
+
+    outpointsOut.assign(dedup.begin(), dedup.end());
+}
+
+CAmount GetWalletOutpointAmount(const COutPoint& outpoint)
+{
+    if (!pwalletMain->mapWallet.count(outpoint.hash)) {
+        return 0;
+    }
+    const CWalletTx& walletTx = pwalletMain->mapWallet[outpoint.hash];
+    if (outpoint.n >= walletTx.tx->vout.size()) {
+        return 0;
+    }
+    if (pwalletMain->IsSpent(outpoint.hash, outpoint.n)) {
+        return 0;
+    }
+    return walletTx.tx->vout[outpoint.n].nValue;
 }
 
 bool TryAbandonInactiveWalletSpenders(const COutPoint& outpoint)
@@ -530,6 +595,27 @@ UniValue NicknameInfoToJSON(const NicknameInfo& info)
     return result;
 }
 
+UniValue LegacyBondToJSON(const NicknameInfo& currentInfo, const COutPoint& bondOutpoint, const CAmount bondAmount)
+{
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("nickname", currentInfo.nickname);
+    result.pushKV("status", Nicknames::StatusToString(Nicknames::Status::BOND_CLAIMABLE));
+    result.pushKV("payout_address", currentInfo.payoutAddress);
+    result.pushKV("owner_pubkey", HexStr(currentInfo.ownerPubKey));
+    result.pushKV("registration_height", currentInfo.registrationHeight);
+    result.pushKV("active_until", currentInfo.activeUntilHeight);
+    result.pushKV("grace_until", currentInfo.graceUntilHeight);
+    result.pushKV("bond_amount", ValueFromAmount(bondAmount));
+    result.pushKV("bond_txid", bondOutpoint.hash.GetHex());
+    result.pushKV("bond_vout", static_cast<int64_t>(bondOutpoint.n));
+    result.pushKV("last_update_txid", currentInfo.lastUpdateTxid.GetHex());
+    result.pushKV("released", currentInfo.released);
+    result.pushKV("bond_claimed", false);
+    result.pushKV("claimable_bond", true);
+    result.pushKV("legacy_bond", true);
+    return result;
+}
+
 UniValue checknickname(const JSONRPCRequest& request)
 {
     if (request.fHelp || request.params.size() != 1) {
@@ -698,11 +784,79 @@ UniValue listwalletnicknames(const JSONRPCRequest& request)
     std::set<CKeyID> walletKeyIDs;
     pwalletMain->GetKeys(walletKeyIDs);
 
+    struct WalletNicknameListEntry
+    {
+        std::string sortNickname;
+        bool legacyBond;
+        COutPoint bondOutpoint;
+        UniValue json;
+    };
+
     const std::vector<NicknameInfo> indexed =
         GetNicknameStateDB()->ListNicknamesForOwnerKeyIDs(walletKeyIDs, start, count);
-    UniValue result(UniValue::VARR);
+    const std::string normalizedStart = start.empty() ? std::string() : [&]() {
+        std::string normalized;
+        Nicknames::NormalizeNickname(start, normalized);
+        return normalized;
+    }();
+
+    std::vector<WalletNicknameListEntry> entries;
+    entries.reserve(indexed.size());
     for (const NicknameInfo& info : indexed) {
-        result.push_back(NicknameInfoToJSON(info));
+        UniValue item = NicknameInfoToJSON(info);
+        item.pushKV("legacy_bond", false);
+        entries.push_back({info.nickname, false, info.GetBondOutpoint(), item});
+    }
+
+    std::vector<COutPoint> trackedBondOutpoints;
+    CollectWalletTrackedBondOutpoints(trackedBondOutpoints);
+    for (const COutPoint& outpoint : trackedBondOutpoints) {
+        std::string nickname;
+        if (!GetNicknameStateDB()->ReadNicknameByBondOutpoint(outpoint, nickname)) {
+            continue;
+        }
+
+        NicknameInfo currentInfo;
+        if (!GetNicknameStateDB()->ReadNickname(nickname, currentInfo)) {
+            continue;
+        }
+        if (currentInfo.HasBondOutpoint() && currentInfo.GetBondOutpoint() == outpoint) {
+            continue;
+        }
+
+        const CAmount bondAmount = GetWalletOutpointAmount(outpoint);
+        if (bondAmount <= 0) {
+            continue;
+        }
+
+        if (!normalizedStart.empty() && currentInfo.nickname < normalizedStart) {
+            continue;
+        }
+
+        UniValue item = LegacyBondToJSON(currentInfo, outpoint, bondAmount);
+        entries.push_back({currentInfo.nickname, true, outpoint, item});
+    }
+
+    std::sort(entries.begin(), entries.end(),
+              [](const WalletNicknameListEntry& a, const WalletNicknameListEntry& b) {
+                  if (a.sortNickname != b.sortNickname) {
+                      return a.sortNickname < b.sortNickname;
+                  }
+                  if (a.legacyBond != b.legacyBond) {
+                      return !a.legacyBond;
+                  }
+                  if (a.bondOutpoint.hash != b.bondOutpoint.hash) {
+                      return a.bondOutpoint.hash < b.bondOutpoint.hash;
+                  }
+                  return a.bondOutpoint.n < b.bondOutpoint.n;
+              });
+
+    UniValue result(UniValue::VARR);
+    for (const WalletNicknameListEntry& entry : entries) {
+        result.push_back(entry.json);
+        if (result.size() >= static_cast<size_t>(count)) {
+            break;
+        }
     }
 
     return result;

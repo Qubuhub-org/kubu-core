@@ -81,7 +81,7 @@ public:
         consensus.nMajorityWindow = 2000;
         // BIP34 is never enforced in KUBU v2 blocks, so we enforce from v3
         consensus.BIP34Height = 1000;
-        consensus.BIP34Hash = uint256S("0x00"); //KUBU TODO: Replace this with block 1000 hash after mainnet launches
+        consensus.BIP34Hash = uint256S("0x1561d231b29d3b64b6b560f2e6eb462aa04fd7f295d02b5a40aaac801d8a0d01");
         consensus.BIP65Height = 1000;
         consensus.BIP66Height = 1000;
         consensus.powLimit = uint256S("0x00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // ~uint256(0) >> 20;
@@ -110,10 +110,10 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = 0; // Disabled
 
         // The best chain should have at least this much work.
-        consensus.nMinimumChainWork = uint256S("0x00");
+        consensus.nMinimumChainWork = uint256S("0x000000000000000000000000000000000000000000000000009dee9b9844cf89");
 
         // By default assume that the signatures in ancestors of this block are valid.
-        consensus.defaultAssumeValid = uint256S("0x00");
+        consensus.defaultAssumeValid = uint256S("0x6f7bb4ebc17469c8e622ace70de790a80e0f5948771827e0e08edcc7fcc605d7");
 
         // AuxPoW parameters
         consensus.nAuxpowChainId = 0x003f; // 63
@@ -180,9 +180,26 @@ public:
         checkpointData = (CCheckpointData) {
             boost::assign::map_list_of
             (0, uint256S("0xb995d8d81cfb8c8cff5829b23cbff8ff4b34347f1c48c7e098ea7fb416a56951"))
+            (1000, uint256S("0x1561d231b29d3b64b6b560f2e6eb462aa04fd7f295d02b5a40aaac801d8a0d01"))
+            (5000, uint256S("0x09fab2e11c98c3653a21d0984f2183f0e8e388e71a3b80c31cb44adc4f307e2e"))
+            (10000, uint256S("0xb2982cefe367b6c90bac8c4a9e29c22bbf2a404a482caf835e98c1cf8d661a3e"))
+            (20000, uint256S("0x5762f555260c353042335f9d09f49f5403c7edf8a7b5e20ac132d5f12843fc51"))
+            (30000, uint256S("0x846a49d7097c84d137c553a828b683c3c65bed00971cb617a6e3097413ab31a6"))
+            (39000, uint256S("0x24386bf570dba80ff11fba1961f5f85e822b19ea6acd88ac64c838c8fdc5d0cc"))
+            (40000, uint256S("0xb6557f7c7bc0a38cd3dd09440188af5534861cc41969b03d7b2cc1b0ed4b3396"))
+            (50000, uint256S("0x376eeb8290918072e2778e348006438eba345e77e401bc28f2f4c0b310385811"))
+            (60000, uint256S("0x1f534e0c5a54c8820c275ec881586db34ae74221989acf7e407bb64b1c6ba32d"))
+            (70000, uint256S("0xb66ae689eef9a2daf88150ca63febb013e7d1bbb4a3ccf6c6b6650a88900d902"))
+            (80000, uint256S("0x421e258c91c82fc8a9b18f91e0264334bf9c9146af267c542e5ef4950282fb59"))
+            (84000, uint256S("0xcf601dd82c845599c4551be51f4112a48ae041e2d144a6bc98d2e57dfaa6b41b"))
+            (84891, uint256S("0x6a27cb2f5a4c2e3b56796e417e0098e1571fd0cb4536721a5b742be9f1da4f1b"))
         };
 
-        chainTxData = ChainTxData{ };
+        chainTxData = ChainTxData{
+            1778108452,
+            88721,
+            0.015746253875331982,
+        };
     }
 };
 static CMainParams mainParams;

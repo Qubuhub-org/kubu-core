@@ -817,6 +817,57 @@ void WalletModel::getWalletKeyIDs(std::set<CKeyID>& keyIDsOut) const
     wallet->GetKeys(keyIDsOut);
 }
 
+void WalletModel::getTrackedNicknameBondOutpoints(std::vector<COutPoint>& outpointsOut) const
+{
+    outpointsOut.clear();
+
+    NicknameStateDB* nicknameDB = GetNicknameStateDB();
+    if (!nicknameDB) {
+        return;
+    }
+
+    LOCK2(cs_main, wallet->cs_wallet);
+
+    std::set<COutPoint> dedup;
+
+    std::vector<COutput> availableCoins;
+    wallet->AvailableCoins(availableCoins, true);
+    BOOST_FOREACH(const COutput& output, availableCoins) {
+        if (!output.fSpendable) {
+            continue;
+        }
+
+        const COutPoint outpoint(output.tx->GetHash(), output.i);
+        std::string nickname;
+        if (!nicknameDB->ReadNicknameByBondOutpoint(outpoint, nickname)) {
+            continue;
+        }
+        dedup.insert(outpoint);
+    }
+
+    std::vector<COutPoint> lockedOutpoints;
+    wallet->ListLockedCoins(lockedOutpoints);
+    BOOST_FOREACH(const COutPoint& outpoint, lockedOutpoints) {
+        if (!wallet->mapWallet.count(outpoint.hash)) {
+            continue;
+        }
+        if (outpoint.n >= wallet->mapWallet[outpoint.hash].tx->vout.size()) {
+            continue;
+        }
+        if (wallet->IsSpent(outpoint.hash, outpoint.n)) {
+            continue;
+        }
+
+        std::string nickname;
+        if (!nicknameDB->ReadNicknameByBondOutpoint(outpoint, nickname)) {
+            continue;
+        }
+        dedup.insert(outpoint);
+    }
+
+    outpointsOut.assign(dedup.begin(), dedup.end());
+}
+
 // returns a list of COutputs from COutPoints
 void WalletModel::getOutputs(const std::vector<COutPoint>& vOutpoints, std::vector<COutput>& vOutputs)
 {

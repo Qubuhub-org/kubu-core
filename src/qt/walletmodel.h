@@ -230,6 +230,7 @@ public:
     bool havePrivKey(const CKeyID &address) const;
     bool getPrivKey(const CKeyID &address, CKey& vchPrivKeyOut) const;
     void getWalletKeyIDs(std::set<CKeyID>& keyIDsOut) const;
+    void getTrackedNicknameBondOutpoints(std::vector<COutPoint>& outpointsOut) const;
     void getOutputs(const std::vector<COutPoint>& vOutpoints, std::vector<COutput>& vOutputs);
     bool isSpent(const COutPoint& outpoint) const;
     void listCoins(std::map<QString, std::vector<COutput> >& mapCoins) const;

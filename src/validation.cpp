@@ -1827,6 +1827,8 @@ struct NicknameBlockUpdates
 {
     std::vector<NicknameInfo> upserts;
     std::vector<std::string> erases;
+    std::vector<std::pair<COutPoint, std::string> > bondIndexUpserts;
+    std::vector<COutPoint> bondIndexErases;
     std::vector<NicknameUndoEntry> undoEntries;
     int blockHeight;
     uint32_t registeredCount;
@@ -2505,6 +2507,12 @@ bool BuildNicknameBlockUpdates(const CBlock& block,
                 return false;
             }
 
+            if (current.existsNow &&
+                current.current.HasBondOutpoint() &&
+                (status == Nicknames::Status::RELEASED || status == Nicknames::Status::BOND_CLAIMABLE)) {
+                updates.bondIndexUpserts.push_back(std::make_pair(current.current.GetBondOutpoint(), operation.nickname));
+            }
+
             const Nicknames::Pricing pricing = Nicknames::GetPricing(operation.nickname.size(), pricingMultiplierPermille);
             const CPubKey ownerPubKey(operation.ownerPubKey);
             if (!ownerPubKey.IsFullyValid() || !ownerPubKey.IsCompressed()) {
@@ -2716,6 +2724,8 @@ bool BuildNicknameBlockUpdates(const CBlock& block,
                 current.current.lastUpdateTxid = tx.GetHash();
                 current.dirty = true;
                 indexBondOutpoint(operation.nickname, current);
+            } else {
+                updates.bondIndexErases.push_back(claimedOutpoint);
             }
             break;
         }
@@ -3025,6 +3035,8 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
             if (!nicknameDB->WriteNicknameBatch(nicknameUpdates.upserts,
                                                 nicknameUpdates.erases,
+                                                nicknameUpdates.bondIndexUpserts,
+                                                nicknameUpdates.bondIndexErases,
                                                 pindex->GetBlockHash(),
                                                 nicknameUpdates.blockHeight,
                                                 nicknameUpdates.registeredCount,

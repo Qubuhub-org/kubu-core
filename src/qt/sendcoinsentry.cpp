@@ -70,8 +70,7 @@ public:
                 ((ch >= '0' && ch <= '9') ||
                  (ch >= 'a' && ch <= 'z') ||
                  (ch >= 'A' && ch <= 'Z'));
-            if ((allowedAlnum && ch != 'l' && ch != 'I' && ch != '0' && ch != 'O') ||
-                ch == '_') {
+            if (allowedAlnum || ch == '_') {
                 continue;
             }
             state = QValidator::Invalid;

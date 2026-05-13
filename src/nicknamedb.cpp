@@ -16,6 +16,7 @@ static const char DB_NICKNAME_BOND_OUTPOINT = 'b';
 static const char DB_NICKNAME_OWNER_KEYID = 'o';
 static const char DB_NICKNAME_META = 'm';
 static const char DB_NICKNAME_PRICING_UNDO = 'p';
+static const char DB_NICKNAME_BOND_INDEX_UNDO = 'q';
 static const char DB_NICKNAME_REG_COUNT = 'r';
 static const std::string OWNER_INDEX_READY_KEY = "owner_index_ready_v1";
 static const std::string PRICING_STATE_KEY = "pricing_state_v1";
@@ -89,6 +90,13 @@ void EraseNicknameOwnerIndexEntry(CDBBatch& batch, const NicknameInfo& info, con
     CKeyID ownerKeyID;
     if (TryGetOwnerKeyID(info, ownerKeyID)) {
         batch.Erase(std::make_pair(DB_NICKNAME_OWNER_KEYID, std::make_pair(ownerKeyID, normalizedNickname)));
+    }
+}
+
+void EraseNicknameBondIndexEntry(CDBBatch& batch, const NicknameInfo& info)
+{
+    if (info.HasBondOutpoint()) {
+        batch.Erase(std::make_pair(DB_NICKNAME_BOND_OUTPOINT, info.GetBondOutpoint()));
     }
 }
 
@@ -232,6 +240,11 @@ NicknameUndoEntry::NicknameUndoEntry() :
 {
 }
 
+NicknameBondIndexUndoEntry::NicknameBondIndexUndoEntry() :
+    existedBefore(false)
+{
+}
+
 Nicknames::Status NicknameInfo::GetStatus(int currentHeight) const
 {
     return Nicknames::GetStatus(currentHeight, activeUntilHeight, graceUntilHeight, released, bondClaimed);
@@ -269,6 +282,7 @@ bool NicknameStateDB::WriteNickname(const NicknameInfo& info, bool fSync)
 
     NicknameInfo currentInfo;
     if (Read(std::make_pair(DB_NICKNAME, normalizedInfo.nickname), currentInfo)) {
+        EraseNicknameBondIndexEntry(batch, currentInfo);
         EraseNicknameOwnerIndexEntry(batch, currentInfo, normalizedInfo.nickname);
     }
 
@@ -285,6 +299,7 @@ bool NicknameStateDB::EraseNickname(const std::string& nickname, bool fSync)
 
     NicknameInfo currentInfo;
     if (Read(std::make_pair(DB_NICKNAME, normalized), currentInfo)) {
+        EraseNicknameBondIndexEntry(batch, currentInfo);
         EraseNicknameOwnerIndexEntry(batch, currentInfo, normalized);
     }
 
@@ -391,6 +406,11 @@ bool NicknameStateDB::ReadNicknameUndo(const uint256& blockHash, std::vector<Nic
     return Read(std::make_pair(DB_NICKNAME_UNDO, blockHash), undoEntries);
 }
 
+bool NicknameStateDB::ReadNicknameBondIndexUndo(const uint256& blockHash, std::vector<NicknameBondIndexUndoEntry>& undoEntries) const
+{
+    return Read(std::make_pair(DB_NICKNAME_BOND_INDEX_UNDO, blockHash), undoEntries);
+}
+
 bool NicknameStateDB::ReadNicknameByBondOutpoint(const COutPoint& outpoint, std::string& nicknameOut) const
 {
     return Read(std::make_pair(DB_NICKNAME_BOND_OUTPOINT, outpoint), nicknameOut);
@@ -406,6 +426,8 @@ bool NicknameStateDB::ReadPricingMultiplierPermille(int64_t& multiplierPermilleO
 
 bool NicknameStateDB::WriteNicknameBatch(const std::vector<NicknameInfo>& upserts,
                                          const std::vector<std::string>& erases,
+                                         const std::vector<std::pair<COutPoint, std::string> >& bondIndexUpserts,
+                                         const std::vector<COutPoint>& bondIndexErases,
                                          const uint256& blockHash,
                                          int blockHeight,
                                          uint32_t registeredCount,
@@ -420,6 +442,7 @@ bool NicknameStateDB::WriteNicknameBatch(const std::vector<NicknameInfo>& upsert
 
         NicknameInfo currentInfo;
         if (Read(std::make_pair(DB_NICKNAME, normalizedInfo.nickname), currentInfo)) {
+            EraseNicknameBondIndexEntry(batch, currentInfo);
             EraseNicknameOwnerIndexEntry(batch, currentInfo, normalizedInfo.nickname);
         }
 
@@ -431,12 +454,41 @@ bool NicknameStateDB::WriteNicknameBatch(const std::vector<NicknameInfo>& upsert
         const std::string normalized = NormalizeKeyName(nickname);
         NicknameInfo currentInfo;
         if (Read(std::make_pair(DB_NICKNAME, normalized), currentInfo)) {
+            EraseNicknameBondIndexEntry(batch, currentInfo);
             EraseNicknameOwnerIndexEntry(batch, currentInfo, normalized);
         }
         batch.Erase(std::make_pair(DB_NICKNAME, normalized));
     }
 
     batch.Write(std::make_pair(DB_NICKNAME_UNDO, blockHash), undoEntries);
+
+    std::map<COutPoint, NicknameBondIndexUndoEntry> bondIndexUndoMap;
+    auto rememberBondIndexUndo = [&](const COutPoint& outpoint) {
+        if (bondIndexUndoMap.count(outpoint) > 0) {
+            return;
+        }
+        NicknameBondIndexUndoEntry undo;
+        undo.outpoint = outpoint;
+        undo.existedBefore = Read(std::make_pair(DB_NICKNAME_BOND_OUTPOINT, outpoint), undo.previousNickname);
+        bondIndexUndoMap.emplace(outpoint, undo);
+    };
+
+    for (const COutPoint& outpoint : bondIndexErases) {
+        rememberBondIndexUndo(outpoint);
+        batch.Erase(std::make_pair(DB_NICKNAME_BOND_OUTPOINT, outpoint));
+    }
+
+    for (const std::pair<COutPoint, std::string>& item : bondIndexUpserts) {
+        rememberBondIndexUndo(item.first);
+        batch.Write(std::make_pair(DB_NICKNAME_BOND_OUTPOINT, item.first), NormalizeKeyName(item.second));
+    }
+
+    std::vector<NicknameBondIndexUndoEntry> bondIndexUndoEntries;
+    bondIndexUndoEntries.reserve(bondIndexUndoMap.size());
+    for (const auto& item : bondIndexUndoMap) {
+        bondIndexUndoEntries.push_back(item.second);
+    }
+    batch.Write(std::make_pair(DB_NICKNAME_BOND_INDEX_UNDO, blockHash), bondIndexUndoEntries);
 
     NicknamePricingState previousPricingState;
     const bool hadPreviousPricingState = ReadNicknamePricingState(*this, previousPricingState);
@@ -465,9 +517,7 @@ bool NicknameStateDB::ApplyNicknameUndo(const uint256& blockHash, int blockHeigh
         const std::string normalized = NormalizeKeyName(undo.nickname);
         NicknameInfo currentInfo;
         if (Read(std::make_pair(DB_NICKNAME, normalized), currentInfo)) {
-            if (currentInfo.HasBondOutpoint()) {
-                batch.Erase(std::make_pair(DB_NICKNAME_BOND_OUTPOINT, currentInfo.GetBondOutpoint()));
-            }
+            EraseNicknameBondIndexEntry(batch, currentInfo);
             EraseNicknameOwnerIndexEntry(batch, currentInfo, normalized);
         }
     }
@@ -486,6 +536,18 @@ bool NicknameStateDB::ApplyNicknameUndo(const uint256& blockHash, int blockHeigh
 
     batch.Erase(std::make_pair(DB_NICKNAME_UNDO, blockHash));
     batch.Erase(std::make_pair(DB_NICKNAME_REG_COUNT, blockHeight));
+
+    std::vector<NicknameBondIndexUndoEntry> bondIndexUndoEntries;
+    if (ReadNicknameBondIndexUndo(blockHash, bondIndexUndoEntries)) {
+        for (const NicknameBondIndexUndoEntry& undo : bondIndexUndoEntries) {
+            if (undo.existedBefore) {
+                batch.Write(std::make_pair(DB_NICKNAME_BOND_OUTPOINT, undo.outpoint), undo.previousNickname);
+            } else {
+                batch.Erase(std::make_pair(DB_NICKNAME_BOND_OUTPOINT, undo.outpoint));
+            }
+        }
+        batch.Erase(std::make_pair(DB_NICKNAME_BOND_INDEX_UNDO, blockHash));
+    }
 
     NicknamePricingUndoEntry pricingUndoEntry;
     if (Read(std::make_pair(DB_NICKNAME_PRICING_UNDO, blockHash), pricingUndoEntry)) {

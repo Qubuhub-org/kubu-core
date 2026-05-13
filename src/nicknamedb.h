@@ -102,6 +102,25 @@ struct NicknameUndoEntry
     }
 };
 
+struct NicknameBondIndexUndoEntry
+{
+    COutPoint outpoint;
+    bool existedBefore;
+    std::string previousNickname;
+
+    NicknameBondIndexUndoEntry();
+
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
+    {
+        READWRITE(outpoint);
+        READWRITE(existedBefore);
+        READWRITE(previousNickname);
+    }
+};
+
 class NicknameStateDB : public CDBWrapper
 {
 public:
@@ -118,10 +137,13 @@ public:
                                                           const std::string& startNickname,
                                                           size_t limit) const;
     bool ReadNicknameUndo(const uint256& blockHash, std::vector<NicknameUndoEntry>& undoEntries) const;
+    bool ReadNicknameBondIndexUndo(const uint256& blockHash, std::vector<NicknameBondIndexUndoEntry>& undoEntries) const;
     bool ReadNicknameByBondOutpoint(const COutPoint& outpoint, std::string& nicknameOut) const;
     bool ReadPricingMultiplierPermille(int64_t& multiplierPermilleOut) const;
     bool WriteNicknameBatch(const std::vector<NicknameInfo>& upserts,
                             const std::vector<std::string>& erases,
+                            const std::vector<std::pair<COutPoint, std::string> >& bondIndexUpserts,
+                            const std::vector<COutPoint>& bondIndexErases,
                             const uint256& blockHash,
                             int blockHeight,
                             uint32_t registeredCount,

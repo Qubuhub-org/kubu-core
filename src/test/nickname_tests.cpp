@@ -28,10 +28,10 @@ BOOST_AUTO_TEST_CASE(validation_rejects_expected_examples)
     BOOST_CHECK(!Nicknames::IsValidNickname("abc"));
 }
 
-BOOST_AUTO_TEST_CASE(normalization_is_lowercase_only)
+BOOST_AUTO_TEST_CASE(normalization_trims_strips_at_and_lowercases)
 {
     std::string normalized;
-    Nicknames::NormalizeNickname("KuBu_01", normalized);
+    Nicknames::NormalizeNickname("  @KuBu_01 \r\n", normalized);
     BOOST_CHECK_EQUAL(normalized, "kubu_01");
     BOOST_CHECK(Nicknames::IsValidNickname(normalized));
 }
