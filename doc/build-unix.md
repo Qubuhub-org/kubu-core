@@ -64,18 +64,26 @@ using only fully tested dependencies, see the documentation in the
 
 Before installing the dependencies, ensure your system is updated and has the latest security patches:
 
-```bash
+```bash.zsh
 sudo apt-get update
 sudo apt-get upgrade
-
+```
 **Required dependencies** :
-```bash
+
+```bash.zig
 sudo apt-get install build-essential libtool autotools-dev automake pkg-config libssl-dev libevent-dev bsdmainutils
 sudo apt-get install libboost-system-dev libboost-filesystem-dev libboost-chrono-dev libboost-program-options-dev libboost-test-dev libboost-thread-dev
+git checkout kubu
+git rebase -i HEAD~n
+# n is normally the number of commits in the pull
+# set commits from 'pick' to 'squash', save and quit
+# on the next screen, edit/refine commit messages
+# save and quit
+git push -f # (force push to GitHub)
 ```
 
 **Optional dependencies** :
-```bash
+```bash.zsh
 # Qt (required for kubu-qt GUI)
 sudo apt-get install libqt5gui5 libqt5core5a libqt5dbus5 qttools5-dev qttools5-dev-tools libprotobuf-dev protobuf-compiler libqrencode-dev
 
