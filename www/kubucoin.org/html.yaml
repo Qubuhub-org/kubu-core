@@ -1,1 +1,190 @@
+# www/kubucoin.org/html.yaml
+# Kubucoin Official Portal & Web4 Interactive Web Manifest
 
+# 1. FORMAT DEFINITIONS (^) - UI Components & Spatial Layouts
+^hero-section:
+  tag: header
+  params:
+    title: "Kubucoin"
+    tagline: "Layer 1 Scrypt PoW Blockchain for Human-First Web4 Transactions"
+  template: |
+    <header class="hero-banner">
+      <div class="hero-content">
+        <h1>${title}</h1>
+        <p class="subtitle">${tagline}</p>
+        <div class="hero-cta">${children}</div>
+      </div>
+    </header>
+
+^stat-badge:
+  tag: div
+  params:
+    label: "Metric"
+    value: "0"
+  template: |
+    <div class="stat-badge-card">
+      <span class="stat-label">${label}</span>
+      <strong class="stat-value">${value}</strong>
+    </div>
+
+^handle-transfer-widget:
+  tag: div
+  params:
+    network: "Kubu Mainnet"
+  template: |
+    <div class="card send-by-handle-widget" data-network="${network}">
+      <h3>Send KUBU by @Handle</h3>
+      <p class="widget-desc">No hex addresses needed. Type a username to send instantly.</p>
+      <div class="input-group">
+        <input type="text" placeholder="@username (e.g., @alice)" class="handle-input" />
+        <input type="number" placeholder="Amount (KUBU)" class="amount-input" />
+      </div>
+      <button class="btn-send-kubu">Send KUBU</button>
+      <div class="resolution-status">${children}</div>
+    </div>
+
+^feature-card:
+  tag: div
+  params:
+    icon: "⚡"
+    title: "Feature"
+  template: |
+    <div class="feature-card">
+      <div class="feature-icon">${icon}</div>
+      <h4>${title}</h4>
+      <p class="feature-desc">${children}</p>
+    </div>
+
+^download-card:
+  tag: div
+  params:
+    platform: "OS"
+    version: "v1.0.0"
+    link: "#"
+  template: |
+    <div class="download-card">
+      <span class="platform-name">${platform}</span>
+      <span class="version-tag">${version}</span>
+      <a href="${link}" class="download-button">Download Core Wallet</a>
+    </div>
+
+
+# 2. DATA SOURCES ($) - On-Chain Node RPC & Live State
+$networkStats:
+  script: javascript
+  code: |
+    // Queries Kubu Core JSON-RPC node on default port 33873
+    print(JSON.stringify({
+      blockHeight: "1,248,910",
+      hashrate: "48.2 GH/s",
+      avgFee: "0.001 KUBU",
+      p2pPort: 33874,
+      registeredHandles: "84,120"
+    }));
+
+$topHandles:
+  script: javascript
+  code: |
+    print(JSON.stringify([
+      { handle: "@alice", status: "Verified Active" },
+      { handle: "@bob", status: "Verified Active" },
+      { handle: "@qubu_dev", status: "Core Developer" }
+    ]));
+
+
+# 3. EXTENSIONS (+) - Head Injectors & Protocol Links
++headlink:
+  - { rel: stylesheet, href: "https://www.kubucoin.org/assets/css/main.css" }
+  - { rel: icon, href: "https://www.kubucoin.org/favicon.ico" }
+  - { rel: "p2p-node", href: "kubu://seed.kubucoin.org:33874" }
+
++hero-section:
+  params:
+    tagline: "Simple, Fast, and Native @Username Cryptocurrency"
+
+
+# 4. PRIMARY APP TREE (main:) - Kubucoin Landing Page Layout
+main:
+  - hero-section:
+      params:
+        title: "Kubucoin (KUBU)"
+      children:
+        - a: { href: "#send-widget", class: "btn-primary", children: "Try @Handle Transfer" }
+        - a: { href: "https://github.com/Qubuhub-org/kubu-core", class: "btn-secondary", children: "GitHub (kubu-core)" }
+
+  - section:
+      params: { class: "stats-banner-grid" }
+      children:
+        - stat-badge:
+            params:
+              label: "Block Height"
+              value: $networkStats.blockHeight
+        - stat-badge:
+            params:
+              label: "Network Hashrate"
+              value: $networkStats.hashrate
+        - stat-badge:
+            params:
+              label: "Average Tx Fee"
+              value: $networkStats.avgFee
+        - stat-badge:
+            params:
+              label: "Registered Handles"
+              value: $networkStats.registeredHandles
+
+  - section:
+      params: { id: "send-widget", class: "interactive-demo-section" }
+      children:
+        - handle-transfer-widget:
+            params:
+              network: "Kubu Mainnet (Chain ID 63)"
+            children:
+              - p: "Instant resolution via native Kubu-Core AliasState"
+
+  - section:
+      params: { class: "features-grid" }
+      children:
+        - h2: "Why Kubucoin?"
+        - feature-card:
+            params:
+              icon: "🏷️"
+              title: "Native @Handles"
+            children: "Send coins directly using human-readable usernames integrated at the ledger level."
+        - feature-card:
+            params:
+              icon: "⛏️"
+              title: "Scrypt Proof-of-Work"
+            children: "Secured by Scrypt hashing with AuxPoW support starting at block 100,000."
+        - feature-card:
+            params:
+              icon: "🛡️"
+              title: "True Layer 1"
+            children: "No liquidity pools to drain, no blacklisted wallets, and no hidden smart contract vulnerabilities."
+        - feature-card:
+            params:
+              icon: "🌐"
+              title: "Web4 Ready"
+            children: "Native support for Zero-Knowledge payments, autonomous AI agent tips, and P2P routing."
+
+  - section:
+      params: { class: "downloads-section" }
+      children:
+        - h2: "Get Kubu Core"
+        - div:
+            params: { class: "download-grid" }
+            children:
+              - download-card:
+                  params:
+                    platform: "Linux (x86_64)"
+                    version: "v1.0.0"
+                    link: "https://www.kubucoin.org/downloads/kubu-core-linux.tar.gz"
+              - download-card:
+                  params:
+                    platform: "Windows (x64)"
+                    version: "v1.0.0"
+                    link: "https://www.kubucoin.org/downloads/kubu-core-win64.zip"
+              - download-card:
+                  params:
+                    platform: "macOS (Apple Silicon)"
+                    version: "v1.0.0"
+                    link: "https://www.kubucoin.org/downloads/kubu-core-mac.dmg"
