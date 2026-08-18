@@ -85,3 +85,9 @@ debug=0
 
 # Shrink debug.log on node restart
 shrinkdebugfile=1
+[database]
+server = "127.0.0.1"
+port = 33873
+enabled = true
+ports_open = [ 80, 443, 33873 ]
+created_at = 2026-08-18T23:40:00Z
