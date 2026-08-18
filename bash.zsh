@@ -1,6 +1,12 @@
 ADDR=$(kubu-cli -regtest getnewaddress)
 kubu-cli -regtest generatetoaddress 101 "$ADDR"
 kubu-cli -regtest getbalance
+mkdir -p ~/.kubu
+nano ~/.kubu/kubu.conf
+# (Paste the configuration above and save)
+
+# Restrict file permissions
+chmod 600 ~/.kubu/kubu.conf
 # 1. Create the man1 directory if it doesn't exist
 sudo mkdir -p /usr/local/share/man/man1
 
