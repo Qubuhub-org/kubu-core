@@ -31,3 +31,8 @@ kubu-cli -named registeralias handle="alice"
 
 # Resolve a handle to its underlying address
 kubu-cli -named resolvealias handle="alice"
+# Start daemon
+kubud -daemon
+
+# Wait for RPC server to initialize and check info
+kubu-cli -rpcwait getblockchaininfo
